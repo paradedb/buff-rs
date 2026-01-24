@@ -1,5 +1,10 @@
 # buff-rs
 
+[![CI](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/buff-rs.svg)](https://crates.io/crates/buff-rs)
+[![Documentation](https://docs.rs/buff-rs/badge.svg)](https://docs.rs/buff-rs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
 A Rust implementation of **BUFF: Decomposed Bounded Floats for Fast Compression and Queries**.
 
 Based on the VLDB 2021 paper: [BUFF: Accelerating Queries in Memory through Decomposed Bounded Floats](https://dl.acm.org/doi/abs/10.14778/3476249.3476305).

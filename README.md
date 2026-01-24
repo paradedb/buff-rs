@@ -124,6 +124,41 @@ let decoded: Vec<Decimal> = codec.decode_to_decimals(&encoded).unwrap();
 
 **Warning**: Converting between BUFF and Decimal involves precision loss because BUFF uses bounded floating-point representation while Decimal uses exact arbitrary-precision.
 
+## Performance
+
+Key performance characteristics (run `cargo bench` locally for your hardware):
+
+| Operation | Throughput | Notes |
+|-----------|------------|-------|
+| Encode (1K values) | ~430 Melem/s | 2.3 µs per 1000 floats |
+| Encode (100K values) | ~305 Melem/s | 328 µs per 100K floats |
+| Decode (1K values) | ~1.66 Gelem/s | 602 ns per 1000 floats |
+| Decode (100K values) | ~750 Melem/s | 134 µs per 100K floats |
+| Sum (compressed) | ~1.5 Gelem/s | Query without full decompression |
+| Max (compressed) | ~880 Melem/s | Query without full decompression |
+
+### Compression Ratio
+
+| Scale | Precision | Compressed Size | Ratio |
+|-------|-----------|-----------------|-------|
+| 100 | 2 decimal places | 20 KB | 25% of original |
+| 1000 | 3 decimal places | 30 KB | 37.5% of original |
+| 10000 | 4 decimal places | 30 KB | 37.5% of original |
+
+(For 10,000 f64 values = 80 KB uncompressed)
+
+### Comparison with decimal-bytes
+
+For 1,000 values with 3 decimal places:
+
+| Metric | buff-rs | decimal-bytes |
+|--------|---------|---------------|
+| Storage size | 2,020 bytes | 4,971 bytes |
+| Decode array | 628 ns | 60.5 µs |
+| Encode array | 2.6 µs | N/A (row-oriented) |
+
+BUFF provides ~2.5x better compression and ~96x faster array decoding for columnar workloads, while decimal-bytes is optimized for individual value operations with lexicographic ordering.
+
 ## When to Use BUFF vs decimal-bytes
 
 | Aspect | decimal-bytes | buff-rs |

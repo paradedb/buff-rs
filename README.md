@@ -21,6 +21,8 @@ BUFF provides efficient compression and query execution for bounded floating-poi
 
 - Encode arrays of `f64` values with configurable precision
 - Decode back to `f64` with controlled precision loss
+- Encode arrays of `decimal_bytes::Decimal` values with configurable precision
+- Decode back to `decimal_bytes::Decimal` with controlled precision loss
 - Query compressed data directly (sum, max, count)
 - **Special value support**: Infinity, -Infinity, NaN
 - Columnar storage layout optimized for analytical queries

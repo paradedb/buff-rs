@@ -81,8 +81,14 @@ mod codec;
 mod error;
 pub mod precision;
 
-pub use codec::{BuffCodec, BuffMetadata};
+#[cfg(feature = "decimal")]
+mod decimal_interop;
+
+pub use codec::{BuffCodec, BuffMetadata, SpecialValue, SpecialValueKind};
 pub use error::BuffError;
+
+#[cfg(feature = "decimal")]
+pub use decimal_interop::DecimalArrayExt;
 
 /// Convenience type alias for Results with BuffError.
 pub type Result<T> = std::result::Result<T, BuffError>;

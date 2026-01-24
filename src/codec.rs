@@ -8,13 +8,25 @@
 //! 1. Efficient compression through delta encoding and bit packing
 //! 2. Fast predicate evaluation directly on compressed data (with SIMD)
 //!
-//! ## Encoding Format
+//! ## Encoding Format (v1 - without special values)
 //!
 //! The encoded format consists of:
 //! - Base integer (8 bytes, i64)
 //! - Number of values (4 bytes, u32)
 //! - Integer bits (4 bytes, u32)
 //! - Decimal bits (4 bytes, u32)
+//! - Byte slices (column-oriented storage)
+//!
+//! ## Encoding Format (v2 - with special values)
+//!
+//! The v2 format adds a header byte and special value section:
+//! - Version/flags (1 byte): 0x02 for v2 with special values
+//! - Base integer (8 bytes, i64)
+//! - Number of regular values (4 bytes, u32)
+//! - Integer bits (4 bytes, u32)
+//! - Decimal bits (4 bytes, u32)
+//! - Number of special values (4 bytes, u32)
+//! - Special value entries: (index: u32, type: u8) where type is 1=+Inf, 2=-Inf, 3=NaN
 //! - Byte slices (column-oriented storage)
 //!
 //! Each value is converted to a fixed-point representation relative to the base,
@@ -24,6 +36,82 @@
 use crate::bitpack::BitPack;
 use crate::error::BuffError;
 use crate::precision::{get_decimal_length, get_precision_bound, PrecisionBound};
+
+/// Format version byte for encoding without special values (legacy).
+const FORMAT_V1: u8 = 0x01;
+
+/// Format version byte for encoding with special values support.
+const FORMAT_V2: u8 = 0x02;
+
+/// Special value type: positive infinity.
+const SPECIAL_POS_INF: u8 = 1;
+
+/// Special value type: negative infinity.
+const SPECIAL_NEG_INF: u8 = 2;
+
+/// Special value type: NaN.
+const SPECIAL_NAN: u8 = 3;
+
+/// Represents a special floating-point value with its position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpecialValue {
+    /// Index in the original array.
+    pub index: u32,
+    /// Type of special value.
+    pub kind: SpecialValueKind,
+}
+
+/// Types of special floating-point values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpecialValueKind {
+    /// Positive infinity (+∞).
+    PositiveInfinity,
+    /// Negative infinity (-∞).
+    NegativeInfinity,
+    /// Not a Number (NaN).
+    NaN,
+}
+
+impl SpecialValueKind {
+    fn to_byte(self) -> u8 {
+        match self {
+            SpecialValueKind::PositiveInfinity => SPECIAL_POS_INF,
+            SpecialValueKind::NegativeInfinity => SPECIAL_NEG_INF,
+            SpecialValueKind::NaN => SPECIAL_NAN,
+        }
+    }
+
+    fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            SPECIAL_POS_INF => Some(SpecialValueKind::PositiveInfinity),
+            SPECIAL_NEG_INF => Some(SpecialValueKind::NegativeInfinity),
+            SPECIAL_NAN => Some(SpecialValueKind::NaN),
+            _ => None,
+        }
+    }
+
+    /// Convert to f64 value.
+    pub fn to_f64(self) -> f64 {
+        match self {
+            SpecialValueKind::PositiveInfinity => f64::INFINITY,
+            SpecialValueKind::NegativeInfinity => f64::NEG_INFINITY,
+            SpecialValueKind::NaN => f64::NAN,
+        }
+    }
+}
+
+/// Classify a float value as regular or special.
+pub fn classify_float(v: f64) -> Option<SpecialValueKind> {
+    if v.is_nan() {
+        Some(SpecialValueKind::NaN)
+    } else if v == f64::INFINITY {
+        Some(SpecialValueKind::PositiveInfinity)
+    } else if v == f64::NEG_INFINITY {
+        Some(SpecialValueKind::NegativeInfinity)
+    } else {
+        None
+    }
+}
 
 /// Flip the sign bit of a byte for proper ordering.
 ///
@@ -210,7 +298,194 @@ impl BuffCodec {
         Ok(bitpack.into_vec())
     }
 
+    /// Encode an array of f64 values, including special values (Infinity, NaN).
+    ///
+    /// This method handles special floating-point values by storing them separately
+    /// from regular values. The encoded format uses version 2 which includes a
+    /// special values section.
+    ///
+    /// # Arguments
+    /// * `data` - Slice of f64 values to encode (may contain Infinity, -Infinity, NaN)
+    ///
+    /// # Returns
+    /// A Vec<u8> containing the encoded data, or an error.
+    ///
+    /// # Example
+    /// ```
+    /// use buff_rs::BuffCodec;
+    ///
+    /// let codec = BuffCodec::new(1000);
+    /// let data = vec![1.234, f64::INFINITY, 5.678, f64::NAN, -f64::INFINITY];
+    /// let encoded = codec.encode_with_special(&data).unwrap();
+    /// let decoded = codec.decode(&encoded).unwrap();
+    /// assert!(decoded[1].is_infinite() && decoded[1].is_sign_positive());
+    /// assert!(decoded[3].is_nan());
+    /// ```
+    pub fn encode_with_special(&self, data: &[f64]) -> Result<Vec<u8>, BuffError> {
+        if data.is_empty() {
+            return Err(BuffError::EmptyInput);
+        }
+
+        // Separate regular values from special values
+        let mut regular_values: Vec<f64> = Vec::with_capacity(data.len());
+        let mut special_values: Vec<SpecialValue> = Vec::new();
+        let mut index_map: Vec<usize> = Vec::with_capacity(data.len()); // Maps result index to regular_values index
+
+        for (i, &val) in data.iter().enumerate() {
+            if let Some(kind) = classify_float(val) {
+                special_values.push(SpecialValue {
+                    index: i as u32,
+                    kind,
+                });
+            } else {
+                index_map.push(regular_values.len());
+                regular_values.push(val);
+            }
+        }
+
+        // If no special values, use the regular encode (more compact)
+        if special_values.is_empty() {
+            return self.encode(data);
+        }
+
+        // If all values are special
+        if regular_values.is_empty() {
+            let mut result = Vec::with_capacity(1 + 4 + 5 * special_values.len());
+            result.push(FORMAT_V2);
+
+            // Write empty regular section header
+            result.extend_from_slice(&0u64.to_le_bytes()); // base
+            result.extend_from_slice(&0u32.to_le_bytes()); // count
+            result.extend_from_slice(&0u32.to_le_bytes()); // ilen
+            result.extend_from_slice(&0u32.to_le_bytes()); // dlen
+
+            // Write special values
+            result.extend_from_slice(&(special_values.len() as u32).to_le_bytes());
+            for sv in &special_values {
+                result.extend_from_slice(&sv.index.to_le_bytes());
+                result.push(sv.kind.to_byte());
+            }
+
+            return Ok(result);
+        }
+
+        // Encode regular values
+        let prec = self.precision();
+        let prec_delta = get_precision_bound(prec);
+        let dec_len = get_decimal_length(prec);
+
+        let mut bound = PrecisionBound::new(prec_delta);
+        bound.set_length(0, dec_len);
+
+        let mut fixed_vec = Vec::with_capacity(regular_values.len());
+        let mut min = i64::MAX;
+        let mut max = i64::MIN;
+
+        for &val in &regular_values {
+            let fixed = bound.fetch_fixed_aligned(val);
+            if fixed < min {
+                min = fixed;
+            }
+            if fixed > max {
+                max = fixed;
+            }
+            fixed_vec.push(fixed);
+        }
+
+        let delta = max - min;
+        let base_fixed = min;
+
+        let cal_int_length = if delta == 0 {
+            0.0
+        } else {
+            ((delta + 1) as f64).log2().ceil()
+        };
+
+        let fixed_len = cal_int_length as u32;
+        let ilen = fixed_len.saturating_sub(dec_len as u32);
+        let dlen = dec_len as u32;
+
+        // Build result
+        let mut result =
+            Vec::with_capacity(1 + 20 + 4 + 5 * special_values.len() + regular_values.len() * 8);
+
+        // Version byte
+        result.push(FORMAT_V2);
+
+        // Regular values header
+        let ubase_fixed = base_fixed as u64;
+        result.extend_from_slice(&ubase_fixed.to_le_bytes());
+        result.extend_from_slice(&(regular_values.len() as u32).to_le_bytes());
+        result.extend_from_slice(&ilen.to_le_bytes());
+        result.extend_from_slice(&dlen.to_le_bytes());
+
+        // Special values section
+        result.extend_from_slice(&(special_values.len() as u32).to_le_bytes());
+        for sv in &special_values {
+            result.extend_from_slice(&sv.index.to_le_bytes());
+            result.push(sv.kind.to_byte());
+        }
+
+        // Write byte-sliced data for regular values
+        let total_bits = ilen + dlen;
+        let mut remain = total_bits;
+
+        if remain == 0 {
+            // All same value, no data needed
+        } else if remain < 8 {
+            let padding = 8 - remain;
+            for &fixed in &fixed_vec {
+                let val = (fixed - base_fixed) as u64;
+                result.push(flip(((val << padding) & 0xFF) as u8));
+            }
+        } else {
+            remain -= 8;
+            let fixed_u64: Vec<u64> = fixed_vec
+                .iter()
+                .map(|&x| {
+                    let val = (x - base_fixed) as u64;
+                    if remain > 0 {
+                        result.push(flip((val >> remain) as u8));
+                    } else {
+                        result.push(flip(val as u8));
+                    }
+                    val
+                })
+                .collect();
+
+            while remain >= 8 {
+                remain -= 8;
+                if remain > 0 {
+                    for &d in &fixed_u64 {
+                        result.push(flip((d >> remain) as u8));
+                    }
+                } else {
+                    for &d in &fixed_u64 {
+                        result.push(flip(d as u8));
+                    }
+                }
+            }
+
+            if remain > 0 {
+                let padding = 8 - remain;
+                for &d in &fixed_u64 {
+                    result.push(flip(((d << padding) & 0xFF) as u8));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Check if encoded data contains special values (v2 format).
+    pub fn has_special_values(&self, bytes: &[u8]) -> bool {
+        !bytes.is_empty() && bytes[0] == FORMAT_V2
+    }
+
     /// Decode BUFF-encoded data back to f64 values.
+    ///
+    /// This method automatically detects the format version and handles both
+    /// legacy (v1) and special values (v2) formats.
     ///
     /// # Arguments
     /// * `bytes` - The encoded byte array
@@ -228,6 +503,17 @@ impl BuffCodec {
     /// let decoded = codec.decode(&encoded).unwrap();
     /// ```
     pub fn decode(&self, bytes: &[u8]) -> Result<Vec<f64>, BuffError> {
+        // Check for v2 format (with special values)
+        if !bytes.is_empty() && bytes[0] == FORMAT_V2 {
+            return self.decode_v2(bytes);
+        }
+
+        // Legacy v1 format
+        self.decode_v1(bytes)
+    }
+
+    /// Decode v1 format (legacy, no special values).
+    fn decode_v1(&self, bytes: &[u8]) -> Result<Vec<f64>, BuffError> {
         if bytes.len() < 20 {
             return Err(BuffError::InvalidData("header too short".into()));
         }
@@ -315,6 +601,146 @@ impl BuffCodec {
                     "bit length {} (>{} chunks) not supported",
                     remain, num_chunks
                 )));
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Decode v2 format (with special values).
+    fn decode_v2(&self, bytes: &[u8]) -> Result<Vec<f64>, BuffError> {
+        if bytes.len() < 22 {
+            // 1 (version) + 8 (base) + 4 (count) + 4 (ilen) + 4 (dlen) + 4 (special count) = 25 min
+            return Err(BuffError::InvalidData("v2 header too short".into()));
+        }
+
+        let mut pos = 1; // Skip version byte
+
+        // Read regular values header
+        let base_int = i64::from_le_bytes(bytes[pos..pos + 8].try_into().unwrap());
+        pos += 8;
+
+        let regular_count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        pos += 4;
+
+        let ilen = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+        pos += 4;
+
+        let dlen = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+        pos += 4;
+
+        // Read special values count
+        let special_count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        pos += 4;
+
+        // Read special values
+        let mut special_values: Vec<SpecialValue> = Vec::with_capacity(special_count);
+        for _ in 0..special_count {
+            if pos + 5 > bytes.len() {
+                return Err(BuffError::InvalidData("truncated special values".into()));
+            }
+            let index = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+            pos += 4;
+            let kind = SpecialValueKind::from_byte(bytes[pos])
+                .ok_or_else(|| BuffError::InvalidData("invalid special value type".into()))?;
+            pos += 1;
+            special_values.push(SpecialValue { index, kind });
+        }
+
+        // Calculate total count
+        let total_count = regular_count + special_count;
+
+        // If no regular values, just return special values
+        if regular_count == 0 {
+            let mut result = vec![0.0f64; total_count];
+            for sv in &special_values {
+                result[sv.index as usize] = sv.kind.to_f64();
+            }
+            return Ok(result);
+        }
+
+        // Decode regular values from byte-sliced data
+        let dec_scl = 2.0f64.powi(dlen as i32);
+        let remain = dlen + ilen;
+        let num_chunks = ceil_div(remain, 8);
+        let padding = num_chunks * 8 - ilen - dlen;
+
+        let data_start = pos;
+        let mut regular_values: Vec<f64> = Vec::with_capacity(regular_count);
+
+        match num_chunks {
+            0 => {
+                regular_values.resize(regular_count, base_int as f64 / dec_scl);
+            }
+            1 => {
+                let chunk0 = &bytes[data_start..data_start + regular_count];
+                for &byte in chunk0.iter() {
+                    let val = (flip(byte) as u64) >> padding;
+                    regular_values.push((base_int + val as i64) as f64 / dec_scl);
+                }
+            }
+            2 => {
+                let chunk0 = &bytes[data_start..data_start + regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                for (&b0, &b1) in chunk0.iter().zip(chunk1.iter()) {
+                    let val = ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
+                    regular_values.push((base_int + val as i64) as f64 / dec_scl);
+                }
+            }
+            3 => {
+                let chunk0 = &bytes[data_start..data_start + regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                let chunk2 = &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
+                for ((&b0, &b1), &b2) in chunk0.iter().zip(chunk1.iter()).zip(chunk2.iter()) {
+                    let val = ((flip(b0) as u64) << (16 - padding))
+                        | ((flip(b1) as u64) << (8 - padding))
+                        | ((flip(b2) as u64) >> padding);
+                    regular_values.push((base_int + val as i64) as f64 / dec_scl);
+                }
+            }
+            4 => {
+                let chunk0 = &bytes[data_start..data_start + regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                let chunk2 = &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
+                let chunk3 = &bytes[data_start + 3 * regular_count..data_start + 4 * regular_count];
+                for (((&b0, &b1), &b2), &b3) in chunk0
+                    .iter()
+                    .zip(chunk1.iter())
+                    .zip(chunk2.iter())
+                    .zip(chunk3.iter())
+                {
+                    let val = ((flip(b0) as u64) << (24 - padding))
+                        | ((flip(b1) as u64) << (16 - padding))
+                        | ((flip(b2) as u64) << (8 - padding))
+                        | ((flip(b3) as u64) >> padding);
+                    regular_values.push((base_int + val as i64) as f64 / dec_scl);
+                }
+            }
+            _ => {
+                return Err(BuffError::InvalidData(format!(
+                    "bit length {} not supported",
+                    remain
+                )));
+            }
+        }
+
+        // Merge regular and special values into final result
+        let mut result = vec![0.0f64; total_count];
+        let mut regular_idx = 0;
+
+        // Create a set of special value indices for O(1) lookup
+        let special_indices: std::collections::HashSet<u32> =
+            special_values.iter().map(|sv| sv.index).collect();
+
+        for (i, slot) in result.iter_mut().enumerate() {
+            if special_indices.contains(&(i as u32)) {
+                // Find the special value for this index
+                if let Some(sv) = special_values.iter().find(|sv| sv.index == i as u32) {
+                    *slot = sv.kind.to_f64();
+                }
+            } else {
+                *slot = regular_values[regular_idx];
+                regular_idx += 1;
             }
         }
 
@@ -714,5 +1140,87 @@ mod tests {
         for (orig, dec) in data.iter().zip(decoded.iter()) {
             assert!((orig - dec).abs() < 1.0, "orig={}, dec={}", orig, dec);
         }
+    }
+
+    #[test]
+    fn test_special_values_infinity() {
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, f64::INFINITY, 2.0, f64::NEG_INFINITY, 3.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+
+        assert!(codec.has_special_values(&encoded));
+
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 5);
+        assert!((decoded[0] - 1.0).abs() < 0.001);
+        assert!(decoded[1].is_infinite() && decoded[1].is_sign_positive());
+        assert!((decoded[2] - 2.0).abs() < 0.001);
+        assert!(decoded[3].is_infinite() && decoded[3].is_sign_negative());
+        assert!((decoded[4] - 3.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_special_values_nan() {
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, f64::NAN, 2.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        assert!((decoded[0] - 1.0).abs() < 0.001);
+        assert!(decoded[1].is_nan());
+        assert!((decoded[2] - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_all_special_values() {
+        let codec = BuffCodec::new(1000);
+        let data = vec![f64::INFINITY, f64::NAN, f64::NEG_INFINITY];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        assert!(decoded[0].is_infinite() && decoded[0].is_sign_positive());
+        assert!(decoded[1].is_nan());
+        assert!(decoded[2].is_infinite() && decoded[2].is_sign_negative());
+    }
+
+    #[test]
+    fn test_no_special_values_uses_v1() {
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, 2.0, 3.0];
+
+        // encode_with_special should use v1 when no special values
+        let encoded = codec.encode_with_special(&data).unwrap();
+        assert!(!codec.has_special_values(&encoded));
+
+        let decoded = codec.decode(&encoded).unwrap();
+        assert_eq!(decoded.len(), 3);
+    }
+
+    #[test]
+    fn test_special_value_kind() {
+        assert_eq!(SpecialValueKind::PositiveInfinity.to_f64(), f64::INFINITY);
+        assert_eq!(
+            SpecialValueKind::NegativeInfinity.to_f64(),
+            f64::NEG_INFINITY
+        );
+        assert!(SpecialValueKind::NaN.to_f64().is_nan());
+    }
+
+    #[test]
+    fn test_classify_float() {
+        assert_eq!(classify_float(1.0), None);
+        assert_eq!(
+            classify_float(f64::INFINITY),
+            Some(SpecialValueKind::PositiveInfinity)
+        );
+        assert_eq!(
+            classify_float(f64::NEG_INFINITY),
+            Some(SpecialValueKind::NegativeInfinity)
+        );
+        assert_eq!(classify_float(f64::NAN), Some(SpecialValueKind::NaN));
     }
 }

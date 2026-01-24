@@ -22,6 +22,8 @@ jobs:
             features: ""
           - name: "simd feature"
             features: "--features simd"
+          - name: "decimal feature"
+            features: "--features decimal"
           - name: "all features"
             features: "--all-features"
     steps:

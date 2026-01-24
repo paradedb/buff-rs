@@ -29,4 +29,17 @@ pub enum BuffError {
     /// The bit width exceeds the maximum supported (32 bits).
     #[error("bit width {0} exceeds maximum of 32")]
     BitWidthExceeded(usize),
+
+    /// Special float values (Infinity, NaN) cannot be converted to decimal.
+    #[error("special float value cannot be converted: {0}")]
+    SpecialValueConversion(String),
+
+    /// Precision loss during decimal conversion exceeds acceptable threshold.
+    #[error("precision loss too high: original={original}, converted={converted}")]
+    PrecisionLoss {
+        /// The original value.
+        original: String,
+        /// The converted value.
+        converted: String,
+    },
 }

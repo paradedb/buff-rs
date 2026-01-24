@@ -17,8 +17,10 @@ BUFF provides efficient compression and query execution for bounded floating-poi
 - Encode arrays of `f64` values with configurable precision
 - Decode back to `f64` with controlled precision loss
 - Query compressed data directly (sum, max, count)
+- **Special value support**: Infinity, -Infinity, NaN
 - Columnar storage layout optimized for analytical queries
-- Zero external dependencies (only `thiserror`)
+- Optional `decimal-bytes` interop for PostgreSQL NUMERIC compatibility
+- Zero required dependencies (only `thiserror`)
 
 ## Installation
 
@@ -27,6 +29,14 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 buff-rs = "0.1"
+```
+
+### Optional Features
+
+```toml
+[dependencies]
+# Enable decimal-bytes interop for PostgreSQL NUMERIC compatibility
+buff-rs = { version = "0.1", features = ["decimal"] }
 ```
 
 ## Quick Start
@@ -62,6 +72,52 @@ The scale determines the precision of encoded values:
 | 100000 | 5 | 3.14159 |
 
 Choose a scale that matches your data's required precision. Higher scales provide more precision but may reduce compression ratio.
+
+## Special Values (Infinity, NaN)
+
+BUFF supports special floating-point values:
+
+```rust
+use buff_rs::BuffCodec;
+
+let codec = BuffCodec::new(1000);
+let data = vec![1.0, f64::INFINITY, 2.0, f64::NAN, f64::NEG_INFINITY];
+
+// Use encode_with_special for arrays containing special values
+let encoded = codec.encode_with_special(&data).unwrap();
+let decoded = codec.decode(&encoded).unwrap();
+
+assert!(decoded[1].is_infinite());
+assert!(decoded[3].is_nan());
+```
+
+## Decimal-bytes Interop (PostgreSQL NUMERIC)
+
+Enable the `decimal` feature for `decimal-bytes` compatibility:
+
+```toml
+[dependencies]
+buff-rs = { version = "0.1", features = ["decimal"] }
+```
+
+```rust
+use buff_rs::BuffCodec;
+use decimal_bytes::Decimal;
+
+let codec = BuffCodec::new(1000);
+
+// Encode Decimal values (with precision loss)
+let decimals: Vec<Decimal> = vec![
+    "1.234".parse().unwrap(),
+    "5.678".parse().unwrap(),
+];
+let encoded = codec.encode_decimals(&decimals).unwrap();
+
+// Decode back to Decimal
+let decoded: Vec<Decimal> = codec.decode_to_decimals(&encoded).unwrap();
+```
+
+**Warning**: Converting between BUFF and Decimal involves precision loss because BUFF uses bounded floating-point representation while Decimal uses exact arbitrary-precision.
 
 ## When to Use BUFF vs decimal-bytes
 

@@ -15,9 +15,14 @@ rust-version = "1.85"
 default = []
 # Enable SIMD-accelerated queries (requires nightly or target feature)
 simd = []
+# Enable conversion to/from decimal_bytes::Decimal (with precision loss)
+decimal = ["dep:decimal-bytes"]
 
 [dependencies]
 thiserror = "2.0"
+
+# Optional dependency for decimal-bytes interop
+decimal-bytes = { version = "0.1", optional = true }
 
 [dev-dependencies]
 proptest = "1.0"

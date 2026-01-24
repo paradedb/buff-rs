@@ -1,0 +1,28 @@
+[package]
+name = "buff-rs"
+version = "0.1.0"
+authors = ["ParadeDB <support@paradedb.com>"]
+license = "MIT"
+categories = ["compression", "encoding", "data-structures"]
+description = "BUFF: Decomposed bounded floats for fast compression and queries"
+repository = "https://github.com/paradedb/buff-rs"
+homepage = "https://github.com/paradedb/buff-rs"
+keywords = ["compression", "float", "encoding", "columnar"]
+edition = "2021"
+rust-version = "1.85"
+
+[features]
+default = []
+# Enable SIMD-accelerated queries (requires nightly or target feature)
+simd = []
+
+[dependencies]
+thiserror = "2.0"
+
+[dev-dependencies]
+proptest = "1.0"
+criterion = "0.8"
+
+[[bench]]
+name = "benchmarks"
+harness = false

@@ -557,8 +557,7 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 for (&b0, &b1) in chunk0.iter().zip(chunk1.iter()).take(len) {
-                    let val =
-                        ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
+                    let val = ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
                     result.push((base_int + val as i64) as f64 / dec_scl);
                 }
             }
@@ -566,8 +565,11 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 let chunk2 = bitpack.read_n_byte_unmut(2 * len, len)?;
-                for ((&b0, &b1), &b2) in
-                    chunk0.iter().zip(chunk1.iter()).zip(chunk2.iter()).take(len)
+                for ((&b0, &b1), &b2) in chunk0
+                    .iter()
+                    .zip(chunk1.iter())
+                    .zip(chunk2.iter())
+                    .take(len)
                 {
                     let val = ((flip(b0) as u64) << (16 - padding))
                         | ((flip(b1) as u64) << (8 - padding))
@@ -618,8 +620,7 @@ impl BuffCodec {
         let base_int = i64::from_le_bytes(bytes[pos..pos + 8].try_into().unwrap());
         pos += 8;
 
-        let regular_count =
-            u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        let regular_count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
         pos += 4;
 
         let ilen = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
@@ -629,8 +630,7 @@ impl BuffCodec {
         pos += 4;
 
         // Read special values count
-        let special_count =
-            u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        let special_count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
         pos += 4;
 
         // Read special values
@@ -681,20 +681,16 @@ impl BuffCodec {
             }
             2 => {
                 let chunk0 = &bytes[data_start..data_start + regular_count];
-                let chunk1 =
-                    &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
                 for (&b0, &b1) in chunk0.iter().zip(chunk1.iter()) {
-                    let val =
-                        ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
+                    let val = ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
                     regular_values.push((base_int + val as i64) as f64 / dec_scl);
                 }
             }
             3 => {
                 let chunk0 = &bytes[data_start..data_start + regular_count];
-                let chunk1 =
-                    &bytes[data_start + regular_count..data_start + 2 * regular_count];
-                let chunk2 =
-                    &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                let chunk2 = &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
                 for ((&b0, &b1), &b2) in chunk0.iter().zip(chunk1.iter()).zip(chunk2.iter()) {
                     let val = ((flip(b0) as u64) << (16 - padding))
                         | ((flip(b1) as u64) << (8 - padding))
@@ -704,12 +700,9 @@ impl BuffCodec {
             }
             4 => {
                 let chunk0 = &bytes[data_start..data_start + regular_count];
-                let chunk1 =
-                    &bytes[data_start + regular_count..data_start + 2 * regular_count];
-                let chunk2 =
-                    &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
-                let chunk3 =
-                    &bytes[data_start + 3 * regular_count..data_start + 4 * regular_count];
+                let chunk1 = &bytes[data_start + regular_count..data_start + 2 * regular_count];
+                let chunk2 = &bytes[data_start + 2 * regular_count..data_start + 3 * regular_count];
+                let chunk3 = &bytes[data_start + 3 * regular_count..data_start + 4 * regular_count];
                 for (((&b0, &b1), &b2), &b3) in chunk0
                     .iter()
                     .zip(chunk1.iter())
@@ -800,8 +793,7 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 for (&b0, &b1) in chunk0.iter().zip(chunk1.iter()).take(len) {
-                    let val =
-                        ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
+                    let val = ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
                     sum += (base_int + val as i64) as f64 / dec_scl;
                 }
             }
@@ -809,8 +801,11 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 let chunk2 = bitpack.read_n_byte_unmut(2 * len, len)?;
-                for ((&b0, &b1), &b2) in
-                    chunk0.iter().zip(chunk1.iter()).zip(chunk2.iter()).take(len)
+                for ((&b0, &b1), &b2) in chunk0
+                    .iter()
+                    .zip(chunk1.iter())
+                    .zip(chunk2.iter())
+                    .take(len)
                 {
                     let val = ((flip(b0) as u64) << (16 - padding))
                         | ((flip(b1) as u64) << (8 - padding))
@@ -897,8 +892,7 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 for (&b0, &b1) in chunk0.iter().zip(chunk1.iter()).take(len) {
-                    let val =
-                        ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
+                    let val = ((flip(b0) as u64) << (8 - padding)) | ((flip(b1) as u64) >> padding);
                     let f = (base_int + val as i64) as f64 / dec_scl;
                     if f > max_val {
                         max_val = f;
@@ -909,8 +903,11 @@ impl BuffCodec {
                 let chunk0 = bitpack.read_n_byte_unmut(0, len)?;
                 let chunk1 = bitpack.read_n_byte_unmut(len, len)?;
                 let chunk2 = bitpack.read_n_byte_unmut(2 * len, len)?;
-                for ((&b0, &b1), &b2) in
-                    chunk0.iter().zip(chunk1.iter()).zip(chunk2.iter()).take(len)
+                for ((&b0, &b1), &b2) in chunk0
+                    .iter()
+                    .zip(chunk1.iter())
+                    .zip(chunk2.iter())
+                    .take(len)
                 {
                     let val = ((flip(b0) as u64) << (16 - padding))
                         | ((flip(b1) as u64) << (8 - padding))
@@ -967,7 +964,10 @@ impl BuffCodec {
     /// Count values equal to a target.
     pub fn count_equal(&self, bytes: &[u8], target: f64) -> Result<usize, BuffError> {
         let decoded = self.decode(bytes)?;
-        Ok(decoded.iter().filter(|&&v| (v - target).abs() < f64::EPSILON).count())
+        Ok(decoded
+            .iter()
+            .filter(|&&v| (v - target).abs() < f64::EPSILON)
+            .count())
     }
 
     /// Get metadata about the encoded data without decoding.
@@ -1203,7 +1203,10 @@ mod tests {
     #[test]
     fn test_special_value_kind() {
         assert_eq!(SpecialValueKind::PositiveInfinity.to_f64(), f64::INFINITY);
-        assert_eq!(SpecialValueKind::NegativeInfinity.to_f64(), f64::NEG_INFINITY);
+        assert_eq!(
+            SpecialValueKind::NegativeInfinity.to_f64(),
+            f64::NEG_INFINITY
+        );
         assert!(SpecialValueKind::NaN.to_f64().is_nan());
     }
 

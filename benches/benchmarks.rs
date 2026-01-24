@@ -322,8 +322,7 @@ mod decimal_comparison {
             .collect();
 
         // Convert to Decimal strings for decimal-bytes
-        let decimal_strings: Vec<String> =
-            f64_data.iter().map(|f| format!("{:.3}", f)).collect();
+        let decimal_strings: Vec<String> = f64_data.iter().map(|f| format!("{:.3}", f)).collect();
 
         // Parse to Decimal values
         let decimals: Vec<Decimal> = decimal_strings

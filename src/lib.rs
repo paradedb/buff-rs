@@ -88,7 +88,7 @@ pub use codec::{BuffCodec, BuffMetadata, SpecialValue, SpecialValueKind};
 pub use error::BuffError;
 
 #[cfg(feature = "decimal")]
-pub use decimal_interop::DecimalArrayExt;
+pub use decimal_interop::{Decimal64ArrayExt, DecimalArrayExt};
 
 /// Convenience type alias for Results with BuffError.
 pub type Result<T> = std::result::Result<T, BuffError>;

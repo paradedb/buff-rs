@@ -22,7 +22,7 @@ decimal = ["dep:decimal-bytes"]
 thiserror = "2.0"
 
 # Optional dependency for decimal-bytes interop
-decimal-bytes = { version = "0.1", optional = true }
+decimal-bytes = { version = "0.2", optional = true }
 
 [dev-dependencies]
 proptest = "1.0"

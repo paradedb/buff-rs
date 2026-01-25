@@ -22,8 +22,8 @@ BUFF provides efficient compression and query execution for bounded floating-poi
 
 - Encode arrays of `f64` values with configurable precision
 - Decode back to `f64` with controlled precision loss
-- Encode arrays of `decimal_bytes::Decimal` values with configurable precision
-- Decode back to `decimal_bytes::Decimal` with controlled precision loss
+- Encode arrays of `decimal_bytes::Decimal` (arbitrary precision) or `Decimal64` (≤16 digits)
+- Decode back to `Decimal` or `Decimal64` with controlled precision loss
 - Query compressed data directly (sum, max, count)
 - **Special value support**: Infinity, -Infinity, NaN
 - Columnar storage layout optimized for analytical queries
@@ -108,6 +108,8 @@ Enable the `decimal` feature for `decimal-bytes` compatibility:
 buff-rs = { version = "0.1", features = ["decimal"] }
 ```
 
+### With Decimal (Arbitrary Precision)
+
 ```rust
 use buff_rs::BuffCodec;
 use decimal_bytes::Decimal;
@@ -125,7 +127,28 @@ let encoded = codec.encode_decimals(&decimals).unwrap();
 let decoded: Vec<Decimal> = codec.decode_to_decimals(&encoded).unwrap();
 ```
 
-**Warning**: Converting between BUFF and Decimal involves precision loss because BUFF uses bounded floating-point representation while Decimal uses exact arbitrary-precision.
+### With Decimal64 (≤16 digits, Fixed 8 Bytes)
+
+`Decimal64` provides faster conversions for values that fit in 16 significant digits:
+
+```rust
+use buff_rs::BuffCodec;
+use decimal_bytes::Decimal64;
+
+let codec = BuffCodec::new(1000);
+
+// Encode Decimal64 values
+let decimals: Vec<Decimal64> = vec![
+    Decimal64::new("1.234", 3).unwrap(),
+    Decimal64::new("5.678", 3).unwrap(),
+];
+let encoded = codec.encode_decimal64s(&decimals).unwrap();
+
+// Decode back to Decimal64 (specify output scale)
+let decoded: Vec<Decimal64> = codec.decode_to_decimal64s(&encoded, 3).unwrap();
+```
+
+**Note**: Converting between BUFF and Decimal types involves precision loss because BUFF uses bounded floating-point representation while Decimal types use exact fixed-point representation.
 
 ## Performance
 
@@ -164,19 +187,24 @@ BUFF provides ~2.5x better compression and ~96x faster array decoding for column
 
 ## When to Use BUFF vs decimal-bytes
 
-| Aspect | decimal-bytes | buff-rs |
-|--------|--------------|---------|
-| **Data Type** | Single decimal values | Arrays of floats |
-| **Precision** | Arbitrary (unlimited digits) | Bounded (fixed scale) |
-| **Storage Layout** | Row-oriented | Column-oriented (byte-sliced) |
-| **Primary Use** | Document storage | Columnar/time-series data |
-| **Query Style** | Decode then compare | Query compressed data |
-| **Sortable Bytes** | Yes (lexicographic) | No (optimized for compression) |
+| Aspect | Decimal | Decimal64 | buff-rs |
+|--------|---------|-----------|---------|
+| **Data Type** | Single values | Single values | Arrays of floats |
+| **Precision** | Unlimited | ≤16 digits | Bounded (fixed scale) |
+| **Storage** | Variable | 8 bytes | Column-oriented |
+| **Primary Use** | Document storage | Fixed-size storage | Columnar/time-series |
+| **Query Style** | Decode then compare | Decode then compare | Query compressed |
+| **Sortable Bytes** | Yes | No | No |
 
-**Use `decimal-bytes`** when:
+**Use `Decimal`** when:
 - You need exact arbitrary-precision decimals (like PostgreSQL NUMERIC)
 - Values are stored individually in documents
 - You need lexicographically sortable byte representation
+
+**Use `Decimal64`** when:
+- You need fixed-size 8-byte storage with ≤16 digits precision
+- You want embedded scale for self-describing values
+- You need fast comparisons and conversions
 
 **Use `buff-rs`** when:
 - You have arrays of floating-point values with known precision

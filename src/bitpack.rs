@@ -351,4 +351,207 @@ mod tests {
         let result = bitpack_vec.write(0, 33);
         assert!(matches!(result, Err(BuffError::BitWidthExceeded(33))));
     }
+
+    #[test]
+    fn test_read_bit_width_exceeded() {
+        let data = vec![0u8; 10];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        let result = bitpack.read(33);
+        assert!(matches!(result, Err(BuffError::BitWidthExceeded(33))));
+    }
+
+    #[test]
+    fn test_read_buffer_overflow() {
+        let data = vec![0u8; 2];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        // Read all available bits first
+        let _ = bitpack.read(16);
+        // Now try to read more
+        let result = bitpack.read(8);
+        assert!(matches!(result, Err(BuffError::BufferOverflow { .. })));
+    }
+
+    #[test]
+    fn test_sum_bits() {
+        let mut bitpack_vec = BitPack::<Vec<u8>>::with_capacity(8);
+        assert_eq!(bitpack_vec.sum_bits(), 0);
+
+        bitpack_vec.write(15, 4).unwrap();
+        assert_eq!(bitpack_vec.sum_bits(), 4);
+
+        bitpack_vec.write(255, 8).unwrap();
+        assert_eq!(bitpack_vec.sum_bits(), 12);
+    }
+
+    #[test]
+    fn test_with_cursor_and_bits() {
+        let data = vec![0xAB, 0xCD, 0xEF];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+
+        bitpack.with_cursor(1);
+        assert_eq!(bitpack.cursor, 1);
+
+        bitpack.with_bits(4);
+        assert_eq!(bitpack.bits, 4);
+    }
+
+    #[test]
+    fn test_as_slice() {
+        let data = vec![1u8, 2, 3, 4];
+        let bitpack = BitPack::<&[u8]>::new(&data);
+        assert_eq!(bitpack.as_slice(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_read_n_byte() {
+        let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        // Skip header (cursor starts at 0)
+        let bytes = bitpack.read_n_byte(3).unwrap();
+        assert_eq!(bytes, &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_read_n_byte_overflow() {
+        let data = vec![0u8, 1, 2];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        let result = bitpack.read_n_byte(10);
+        assert!(matches!(result, Err(BuffError::BufferOverflow { .. })));
+    }
+
+    #[test]
+    fn test_read_n_byte_unmut() {
+        let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7];
+        let bitpack = BitPack::<&[u8]>::new(&data);
+        // Read 3 bytes starting at offset 0 (after header position 0)
+        let bytes = bitpack.read_n_byte_unmut(0, 3).unwrap();
+        assert_eq!(bytes, &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_read_n_byte_unmut_overflow() {
+        let data = vec![0u8, 1, 2];
+        let bitpack = BitPack::<&[u8]>::new(&data);
+        let result = bitpack.read_n_byte_unmut(0, 10);
+        assert!(matches!(result, Err(BuffError::BufferOverflow { .. })));
+    }
+
+    #[test]
+    fn test_skip_n_byte() {
+        let data = vec![0u8; 10];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        assert_eq!(bitpack.cursor, 0);
+        bitpack.skip_n_byte(5);
+        assert_eq!(bitpack.cursor, 5);
+    }
+
+    #[test]
+    fn test_skip_bits() {
+        let data = vec![0u8; 10];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        bitpack.skip(20).unwrap();
+        assert_eq!(bitpack.cursor, 2);
+        assert_eq!(bitpack.bits, 4);
+    }
+
+    #[test]
+    fn test_skip_overflow() {
+        let data = vec![0u8; 2];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        let result = bitpack.skip(100);
+        assert!(matches!(result, Err(BuffError::BufferOverflow { .. })));
+    }
+
+    #[test]
+    fn test_finish_read_byte() {
+        let data = vec![0u8; 10];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        bitpack.bits = 5; // Simulate partial read
+        bitpack.finish_read_byte();
+        assert_eq!(bitpack.cursor, 1);
+        assert_eq!(bitpack.bits, 0);
+    }
+
+    #[test]
+    fn test_finish_write_byte() {
+        let mut bitpack = BitPack::<Vec<u8>>::with_capacity(10);
+        bitpack.write(0xAB, 8).unwrap();
+        bitpack.finish_write_byte();
+        assert_eq!(bitpack.bits, 0);
+        assert_eq!(bitpack.buff.len(), 2);
+    }
+
+    #[test]
+    fn test_write_bytes() {
+        let mut bitpack = BitPack::<Vec<u8>>::with_capacity(10);
+        bitpack.write_bytes(&[1, 2, 3, 4]);
+        assert_eq!(bitpack.buff, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_write_byte() {
+        let mut bitpack = BitPack::<Vec<u8>>::with_capacity(10);
+        bitpack.write_byte(0xAB).unwrap();
+        bitpack.write_byte(0xCD).unwrap();
+        assert_eq!(bitpack.buff, vec![0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_into_vec() {
+        let mut bitpack = BitPack::<Vec<u8>>::with_capacity(10);
+        bitpack.write(0xABCD, 16).unwrap();
+        let vec = bitpack.into_vec();
+        assert!(!vec.is_empty());
+    }
+
+    #[test]
+    fn test_default() {
+        let bitpack = BitPack::<Vec<u8>>::default();
+        assert!(bitpack.buff.is_empty());
+        assert_eq!(bitpack.cursor, 0);
+        assert_eq!(bitpack.bits, 0);
+    }
+
+    #[test]
+    fn test_write_to_mut_slice() {
+        let mut buffer = [0u8; 4];
+        let mut bitpack = BitPack::new(&mut buffer[..]);
+        bitpack.write(0xAB, 8).unwrap();
+        bitpack.write(0xCD, 8).unwrap();
+        assert_eq!(buffer[0], 0xAB);
+        assert_eq!(buffer[1], 0xCD);
+    }
+
+    #[test]
+    fn test_write_to_mut_slice_overflow() {
+        let mut buffer = [0u8; 2];
+        let mut bitpack = BitPack::new(&mut buffer[..]);
+        bitpack.write(0xFFFF, 16).unwrap();
+        let result = bitpack.write(0xFF, 8);
+        assert!(matches!(result, Err(BuffError::BufferOverflow { .. })));
+    }
+
+    #[test]
+    fn test_write_max_bits() {
+        let mut bitpack = BitPack::<Vec<u8>>::with_capacity(8);
+        // Write exactly 32 bits (max allowed)
+        bitpack.write(0xDEADBEEF, 32).unwrap();
+        assert_eq!(bitpack.sum_bits(), 32);
+    }
+
+    #[test]
+    fn test_read_byte() {
+        let data = vec![0xAA, 0xBB, 0xCC];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        assert_eq!(bitpack.read_byte().unwrap(), 0xBB);
+        assert_eq!(bitpack.read_byte().unwrap(), 0xCC);
+    }
+
+    #[test]
+    fn test_read_byte_eof() {
+        let data = vec![0xAA];
+        let mut bitpack = BitPack::<&[u8]>::new(&data);
+        let result = bitpack.read_byte();
+        assert!(matches!(result, Err(BuffError::InvalidData(_))));
+    }
 }

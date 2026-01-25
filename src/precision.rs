@@ -294,4 +294,155 @@ mod tests {
         let fixed = bound.fetch_fixed_aligned(3.14159);
         assert!(fixed > 0);
     }
+
+    #[test]
+    fn test_fetch_fixed_aligned_negative() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let fixed = bound.fetch_fixed_aligned(-3.14159);
+        assert!(fixed < 0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_zero() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let fixed = bound.fetch_fixed_aligned(0.0);
+        assert_eq!(fixed, 0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_small() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        // Very small value below precision threshold
+        let fixed = bound.fetch_fixed_aligned(0.00001);
+        // Should be within precision bounds
+        assert!(fixed.abs() <= 1);
+    }
+
+    #[test]
+    fn test_get_length() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(8, 16);
+
+        let (ilen, dlen) = bound.get_length();
+        assert_eq!(ilen, 8);
+        assert_eq!(dlen, 16);
+    }
+
+    #[test]
+    fn test_cal_length() {
+        let mut bound = PrecisionBound::new(0.00005);
+
+        // Large value should increase int_length
+        bound.cal_length(1000.0);
+        let (ilen, _dlen) = bound.get_length();
+        assert!(ilen > 0);
+
+        // Small decimal should affect decimal_length
+        let mut bound2 = PrecisionBound::new(0.00005);
+        bound2.cal_length(0.123456);
+        let (_, dlen) = bound2.get_length();
+        assert!(dlen > 0);
+    }
+
+    #[test]
+    fn test_fetch_components() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let (int_part, dec_part) = bound.fetch_components(3.5);
+        assert_eq!(int_part, 3);
+        assert!(dec_part > 0);
+    }
+
+    #[test]
+    fn test_fetch_components_negative() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let (int_part, _dec_part) = bound.fetch_components(-3.5);
+        assert!(int_part < 0);
+    }
+
+    #[test]
+    fn test_fetch_components_small_value() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(0, 14);
+
+        // Value smaller than precision threshold
+        let (int_part, dec_part) = bound.fetch_components(0.001);
+        assert_eq!(int_part, 0);
+        assert!(dec_part >= 0);
+    }
+
+    #[test]
+    fn test_precision_bound_method() {
+        let mut bound = PrecisionBound::new(0.005);
+
+        // Should find bounded representation
+        let result = bound.precision_bound(3.14159);
+        assert!((result - 3.14159).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_precision_bound_exact() {
+        let mut bound = PrecisionBound::new(0.05);
+
+        // Value that's already at a good precision boundary
+        let result = bound.precision_bound(1.0);
+        assert!((result - 1.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_get_precision_bound_zero() {
+        let pb = get_precision_bound(0);
+        assert!((pb - 0.49).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_get_precision_bound_negative() {
+        let pb = get_precision_bound(-5);
+        assert!((pb - 0.49).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_get_precision_bound_high() {
+        let pb = get_precision_bound(10);
+        assert!(pb < 0.0000000001);
+        assert!(pb > 0.0);
+    }
+
+    #[test]
+    fn test_get_decimal_length_unknown() {
+        // Precision value not in the map
+        let len = get_decimal_length(99);
+        assert_eq!(len, 0);
+    }
+
+    #[test]
+    fn test_get_decimal_length_all_values() {
+        // Test all values in PRECISION_MAP
+        for (prec, expected_len) in PRECISION_MAP {
+            assert_eq!(get_decimal_length(prec), expected_len);
+        }
+    }
+
+    #[test]
+    fn test_precision_bound_debug() {
+        let bound = PrecisionBound::new(0.00005);
+        let debug_str = format!("{:?}", bound);
+        assert!(debug_str.contains("PrecisionBound"));
+    }
+
+    #[test]
+    fn test_precision_bound_clone() {
+        let bound = PrecisionBound::new(0.00005);
+        let cloned = bound.clone();
+        assert_eq!(bound.precision, cloned.precision);
+    }
 }

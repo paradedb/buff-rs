@@ -152,16 +152,17 @@ let decoded: Vec<Decimal64> = codec.decode_to_decimal64s(&encoded, 3).unwrap();
 
 ## Performance
 
-Key performance characteristics (run `cargo bench` locally for your hardware):
+Key performance characteristics (run `cargo bench --features decimal` locally for your hardware):
 
-| Operation | Throughput | Notes |
-|-----------|------------|-------|
-| Encode (1K values) | ~430 Melem/s | 2.3 µs per 1000 floats |
-| Encode (100K values) | ~305 Melem/s | 328 µs per 100K floats |
-| Decode (1K values) | ~1.66 Gelem/s | 602 ns per 1000 floats |
-| Decode (100K values) | ~750 Melem/s | 134 µs per 100K floats |
-| Sum (compressed) | ~1.5 Gelem/s | Query without full decompression |
-| Max (compressed) | ~880 Melem/s | Query without full decompression |
+### Core Operations
+
+| Operation | Time | Throughput |
+|-----------|------|------------|
+| Encode (1K values) | 2.4 µs | 410 Melem/s |
+| Encode (100K values) | 314 µs | 318 Melem/s |
+| Decode (1K values) | 600 ns | 1.66 Gelem/s |
+| Decode (100K values) | 138 µs | 725 Melem/s |
+| Sum (10K, compressed) | 6.9 µs | 1.44 Gelem/s |
 
 ### Compression Ratio
 
@@ -173,17 +174,26 @@ Key performance characteristics (run `cargo bench` locally for your hardware):
 
 (For 10,000 f64 values = 80 KB uncompressed)
 
-### Comparison with decimal-bytes
+### Decimal64 vs Decimal Encoding
 
-For 1,000 values with 3 decimal places:
+For 1,000 values with BUFF encoding:
 
-| Metric | buff-rs | decimal-bytes |
-|--------|---------|---------------|
-| Storage size | 2,020 bytes | 4,971 bytes |
-| Decode array | 628 ns | 60.5 µs |
-| Encode array | 2.6 µs | N/A (row-oriented) |
+| Operation | Decimal64 | Decimal | Speedup |
+|-----------|-----------|---------|---------|
+| BUFF encode | 4.0 µs | 74 µs | **18x** |
+| BUFF decode to type | 213 µs | 189 µs | ~1x |
+| BUFF decode to f64 | 600 ns | 600 ns | - |
 
-BUFF provides ~2.5x better compression and ~96x faster array decoding for columnar workloads, while decimal-bytes is optimized for individual value operations with lexicographic ordering.
+### Memory Usage (1,000 values)
+
+| Type | Storage |
+|------|---------|
+| BUFF compressed | **2,020 bytes** |
+| Decimal (bytes) | 4,971 bytes |
+| Decimal64 | 8,000 bytes (fixed 8 bytes each) |
+| Decimal (stack+heap) | 24,000 + 4,807 bytes |
+
+BUFF provides ~2.5x better compression than decimal-bytes and ~100x faster array decoding for columnar workloads.
 
 ## When to Use BUFF vs decimal-bytes
 

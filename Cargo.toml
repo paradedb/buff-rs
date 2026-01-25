@@ -1,6 +1,6 @@
 [package]
 name = "buff-rs"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["ParadeDB <support@paradedb.com>"]
 license = "MIT"
 categories = ["compression", "encoding", "data-structures"]

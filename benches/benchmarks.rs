@@ -307,7 +307,7 @@ fn bench_compression_ratio(c: &mut Criterion) {
 #[cfg(feature = "decimal")]
 mod decimal_comparison {
     use super::*;
-    use decimal_bytes::Decimal;
+    use decimal_bytes::{Decimal, Decimal64};
     use std::str::FromStr;
 
     pub fn bench_vs_decimal_bytes(c: &mut Criterion) {
@@ -424,10 +424,153 @@ mod decimal_comparison {
 
         group.finish();
     }
+
+    // ========================================================================
+    // Decimal64 benchmarks
+    // ========================================================================
+
+    pub fn bench_decimal64(c: &mut Criterion) {
+        let mut group = c.benchmark_group("decimal64");
+
+        let size = 1000;
+        let codec = BuffCodec::new(1000); // 3 decimal places
+        let scale: u8 = 3;
+
+        // Generate test data as f64
+        let f64_data: Vec<f64> = (0..size)
+            .map(|i| (i as f64) / 100.0 + (i as f64 * 0.01).sin())
+            .collect();
+
+        // Convert to Decimal64 values
+        let decimal64s: Vec<Decimal64> = f64_data
+            .iter()
+            .map(|f| Decimal64::new(&format!("{:.3}", f), scale).unwrap())
+            .collect();
+
+        // Also create Decimal versions for comparison
+        let decimals: Vec<Decimal> = f64_data
+            .iter()
+            .map(|f| Decimal::from_str(&format!("{:.3}", f)).unwrap())
+            .collect();
+
+        group.throughput(Throughput::Elements(size as u64));
+
+        // BUFF: encode Decimal64 array
+        group.bench_function("buff_encode_decimal64s", |b| {
+            b.iter(|| codec.encode_decimal64s(black_box(&decimal64s)))
+        });
+
+        // BUFF: encode Decimal array (for comparison)
+        group.bench_function("buff_encode_decimals", |b| {
+            b.iter(|| codec.encode_decimals(black_box(&decimals)))
+        });
+
+        // BUFF: encode f64 array (baseline)
+        group.bench_function("buff_encode_f64", |b| {
+            b.iter(|| codec.encode(black_box(&f64_data)))
+        });
+
+        // Decode benchmarks
+        let buff_encoded = codec.encode(&f64_data).unwrap();
+
+        group.bench_function("buff_decode_to_decimal64s", |b| {
+            b.iter(|| codec.decode_to_decimal64s(black_box(&buff_encoded), scale))
+        });
+
+        group.bench_function("buff_decode_to_decimals", |b| {
+            b.iter(|| codec.decode_to_decimals(black_box(&buff_encoded)))
+        });
+
+        group.bench_function("buff_decode_to_f64", |b| {
+            b.iter(|| codec.decode(black_box(&buff_encoded)))
+        });
+
+        group.finish();
+    }
+
+    pub fn bench_decimal64_vs_decimal(c: &mut Criterion) {
+        let mut group = c.benchmark_group("decimal64_vs_decimal");
+
+        let size = 1000;
+        let scale: u8 = 3;
+
+        // Generate test data
+        let values: Vec<String> = (0..size)
+            .map(|i| format!("{:.3}", (i as f64) / 100.0))
+            .collect();
+
+        group.throughput(Throughput::Elements(size as u64));
+
+        // Parse to Decimal64
+        group.bench_function("parse_decimal64", |b| {
+            b.iter(|| {
+                values
+                    .iter()
+                    .map(|s| Decimal64::new(black_box(s), scale).unwrap())
+                    .collect::<Vec<_>>()
+            })
+        });
+
+        // Parse to Decimal
+        group.bench_function("parse_decimal", |b| {
+            b.iter(|| {
+                values
+                    .iter()
+                    .map(|s| Decimal::from_str(black_box(s)).unwrap())
+                    .collect::<Vec<_>>()
+            })
+        });
+
+        // Create pre-parsed values
+        let decimal64s: Vec<Decimal64> = values
+            .iter()
+            .map(|s| Decimal64::new(s, scale).unwrap())
+            .collect();
+        let decimals: Vec<Decimal> = values
+            .iter()
+            .map(|s| Decimal::from_str(s).unwrap())
+            .collect();
+
+        // to_string benchmarks
+        group.bench_function("to_string_decimal64", |b| {
+            b.iter(|| {
+                black_box(&decimal64s)
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+            })
+        });
+
+        group.bench_function("to_string_decimal", |b| {
+            b.iter(|| {
+                black_box(&decimals)
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+            })
+        });
+
+        // Memory size comparison
+        let decimal64_size = decimal64s.len() * std::mem::size_of::<Decimal64>();
+        let decimal_bytes_size: usize = decimals.iter().map(|d| d.as_bytes().len()).sum();
+        let decimal_stack_size = decimals.len() * std::mem::size_of::<Decimal>();
+
+        println!("\nMemory for {} values:", size);
+        println!("  Decimal64: {} bytes (fixed 8 bytes each)", decimal64_size);
+        println!(
+            "  Decimal:   {} bytes stack + {} bytes heap",
+            decimal_stack_size, decimal_bytes_size
+        );
+
+        group.finish();
+    }
 }
 
 #[cfg(feature = "decimal")]
-use decimal_comparison::{bench_aggregation_comparison, bench_vs_decimal_bytes};
+use decimal_comparison::{
+    bench_aggregation_comparison, bench_decimal64, bench_decimal64_vs_decimal,
+    bench_vs_decimal_bytes,
+};
 
 // ============================================================================
 // Criterion group configuration
@@ -461,6 +604,8 @@ criterion_group!(
     bench_compression_ratio,
     bench_vs_decimal_bytes,
     bench_aggregation_comparison,
+    bench_decimal64,
+    bench_decimal64_vs_decimal,
 );
 
 criterion_main!(benches);

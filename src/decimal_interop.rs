@@ -229,7 +229,7 @@ impl BuffCodec {
         }
 
         // Convert Decimal64 to f64
-        let floats: Vec<f64> = data.iter().map(|d| decimal64_to_f64(d)).collect();
+        let floats: Vec<f64> = data.iter().map(decimal64_to_f64).collect();
 
         // Check if any special values exist
         let has_special = floats.iter().any(|v| classify_float(*v).is_some());
@@ -282,8 +282,9 @@ impl BuffCodec {
                     Ok(Decimal64::neg_infinity())
                 } else {
                     // Convert f64 to Decimal64 with the specified scale
-                    f64_to_decimal64(f, scale)
-                        .map_err(|e| BuffError::InvalidData(format!("failed to create Decimal64: {}", e)))
+                    f64_to_decimal64(f, scale).map_err(|e| {
+                        BuffError::InvalidData(format!("failed to create Decimal64: {}", e))
+                    })
                 }
             })
             .collect()
@@ -408,12 +409,7 @@ mod tests {
         for (orig, dec) in decimals.iter().zip(decoded.iter()) {
             let orig_f: f64 = orig.to_string().parse().unwrap();
             let dec_f: f64 = dec.to_string().parse().unwrap();
-            assert!(
-                (orig_f - dec_f).abs() < 0.001,
-                "orig={}, dec={}",
-                orig,
-                dec
-            );
+            assert!((orig_f - dec_f).abs() < 0.001, "orig={}, dec={}", orig, dec);
         }
     }
 
@@ -485,12 +481,7 @@ mod tests {
         for (orig, dec) in decimals.iter().zip(decoded.iter()) {
             let orig_f = decimal64_to_f64(orig);
             let dec_f = decimal64_to_f64(dec);
-            assert!(
-                (orig_f - dec_f).abs() < 0.001,
-                "orig={}, dec={}",
-                orig,
-                dec
-            );
+            assert!((orig_f - dec_f).abs() < 0.001, "orig={}, dec={}", orig, dec);
         }
     }
 
@@ -562,17 +553,19 @@ mod tests {
         for scale in [0u8, 1, 2, 3, 4] {
             let value = format!("{:.prec$}", 123.456789, prec = scale as usize);
             let d64 = Decimal64::new(&value, scale).unwrap();
-            
+
             let encoded = codec.encode_decimal64s(&[d64]).unwrap();
             let decoded = codec.decode_to_decimal64s(&encoded, scale).unwrap();
-            
+
             let orig_f = decimal64_to_f64(&d64);
             let dec_f = decimal64_to_f64(&decoded[0]);
-            
+
             assert!(
                 (orig_f - dec_f).abs() < 0.0001,
                 "scale={}, orig={}, decoded={}",
-                scale, orig_f, dec_f
+                scale,
+                orig_f,
+                dec_f
             );
         }
     }

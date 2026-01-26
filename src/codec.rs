@@ -1430,4 +1430,311 @@ mod tests {
 
         assert!((max - 7.5).abs() < 0.01);
     }
+
+    #[test]
+    fn test_encode_decode_three_chunks() {
+        // Create data that requires 3 byte chunks (17-24 bits)
+        let codec = BuffCodec::new(10000); // 4 decimal places
+        let data: Vec<f64> = (0..100).map(|i| i as f64 * 100.0 + 0.1234).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(data.len(), decoded.len());
+        for (orig, dec) in data.iter().zip(decoded.iter()) {
+            assert!((orig - dec).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_four_chunks() {
+        // Create data that requires 4 byte chunks (25-32 bits)
+        // Using smaller scale and range to stay within 32 bits
+        let codec = BuffCodec::new(1000); // 3 decimal places
+        let data: Vec<f64> = (0..100).map(|i| i as f64 * 1000.0).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(data.len(), decoded.len());
+        for (orig, dec) in data.iter().zip(decoded.iter()) {
+            assert!((orig - dec).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn test_sum_three_chunks() {
+        let codec = BuffCodec::new(10000);
+        let data: Vec<f64> = (1..=10).map(|i| i as f64 * 100.0).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let sum = codec.sum(&encoded).unwrap();
+
+        let expected: f64 = (1..=10).map(|i| i as f64 * 100.0).sum();
+        assert!((sum - expected).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_sum_four_chunks() {
+        let codec = BuffCodec::new(1000);
+        let data: Vec<f64> = (1..=10).map(|i| i as f64 * 1000.0).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let sum = codec.sum(&encoded).unwrap();
+
+        let expected: f64 = (1..=10).map(|i| i as f64 * 1000.0).sum();
+        assert!((sum - expected).abs() < 10.0);
+    }
+
+    #[test]
+    fn test_max_three_chunks() {
+        let codec = BuffCodec::new(10000);
+        let data: Vec<f64> = vec![100.0, 200.0, 5000.0, 300.0];
+        let encoded = codec.encode(&data).unwrap();
+        let max = codec.max(&encoded).unwrap();
+
+        assert!((max - 5000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_max_four_chunks() {
+        let codec = BuffCodec::new(1000);
+        let data: Vec<f64> = vec![100.0, 50000.0, 3000.0, 4000.0];
+        let encoded = codec.encode(&data).unwrap();
+        let max = codec.max(&encoded).unwrap();
+
+        assert!((max - 50000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_decode_v2_truncated_special_values() {
+        let codec = BuffCodec::new(1000);
+
+        // Create v2 format with special values count but truncated special values section
+        let mut data = vec![FORMAT_V2];
+        data.extend_from_slice(&0i64.to_le_bytes()); // base
+        data.extend_from_slice(&0u32.to_le_bytes()); // count
+        data.extend_from_slice(&0u32.to_le_bytes()); // ilen
+        data.extend_from_slice(&0u32.to_le_bytes()); // dlen
+        data.extend_from_slice(&5u32.to_le_bytes()); // special count = 5 (but we won't add them)
+                                                     // No special values data - truncated
+
+        let result = codec.decode(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_v2_invalid_special_type() {
+        let codec = BuffCodec::new(1000);
+
+        // Create v2 format with invalid special value type
+        let mut data = vec![FORMAT_V2];
+        data.extend_from_slice(&0i64.to_le_bytes()); // base
+        data.extend_from_slice(&0u32.to_le_bytes()); // count
+        data.extend_from_slice(&0u32.to_le_bytes()); // ilen
+        data.extend_from_slice(&0u32.to_le_bytes()); // dlen
+        data.extend_from_slice(&1u32.to_le_bytes()); // special count = 1
+        data.extend_from_slice(&0u32.to_le_bytes()); // index
+        data.push(99); // invalid special type
+
+        let result = codec.decode(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sum_error_handling() {
+        let codec = BuffCodec::new(1000);
+        let short_data = vec![0u8; 10]; // Too short for header
+        let result = codec.sum(&short_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_error_handling() {
+        let codec = BuffCodec::new(1000);
+        let short_data = vec![0u8; 10]; // Too short for header
+        let result = codec.max(&short_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_metadata_error_handling() {
+        let codec = BuffCodec::new(1000);
+        let short_data = vec![0u8; 10]; // Too short for header
+        let result = codec.metadata(&short_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_count_greater_than_with_special() {
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, f64::INFINITY, 3.0, f64::NAN, 5.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+
+        // Infinity is greater than any finite threshold
+        let count = codec.count_greater_than(&encoded, 2.0).unwrap();
+        assert!(count >= 2); // 3.0 and 5.0 are definitely > 2.0
+    }
+
+    #[test]
+    fn test_encode_decode_two_chunks() {
+        // Create data that requires 2 byte chunks (9-16 bits)
+        let codec = BuffCodec::new(100);
+        let data: Vec<f64> = (0..100).map(|i| i as f64 * 10.0).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(data.len(), decoded.len());
+        for (orig, dec) in data.iter().zip(decoded.iter()) {
+            assert!((orig - dec).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn test_sum_two_chunks() {
+        let codec = BuffCodec::new(100);
+        let data: Vec<f64> = (1..=10).map(|i| i as f64 * 10.0).collect();
+        let encoded = codec.encode(&data).unwrap();
+        let sum = codec.sum(&encoded).unwrap();
+
+        let expected: f64 = (1..=10).map(|i| i as f64 * 10.0).sum();
+        assert!((sum - expected).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_max_two_chunks() {
+        let codec = BuffCodec::new(100);
+        let data: Vec<f64> = vec![10.0, 50.0, 30.0, 40.0];
+        let encoded = codec.encode(&data).unwrap();
+        let max = codec.max(&encoded).unwrap();
+
+        assert!((max - 50.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_encode_with_special_mixed_regular_and_special() {
+        let codec = BuffCodec::new(1000);
+
+        // Mix of regular and special values at various positions
+        let data = vec![
+            f64::NEG_INFINITY, // start with special
+            1.0,
+            2.0,
+            f64::NAN,
+            3.0,
+            f64::INFINITY, // end with special
+        ];
+
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 6);
+        assert!(decoded[0].is_infinite() && decoded[0].is_sign_negative());
+        assert!((decoded[1] - 1.0).abs() < 0.001);
+        assert!((decoded[2] - 2.0).abs() < 0.001);
+        assert!(decoded[3].is_nan());
+        assert!((decoded[4] - 3.0).abs() < 0.001);
+        assert!(decoded[5].is_infinite() && decoded[5].is_sign_positive());
+    }
+
+    #[test]
+    fn test_buff_codec_clone() {
+        let codec1 = BuffCodec::new(1000);
+        let codec2 = codec1.clone();
+        assert_eq!(codec1.precision(), codec2.precision());
+    }
+
+    #[test]
+    fn test_buff_codec_debug() {
+        let codec = BuffCodec::new(1000);
+        let debug_str = format!("{:?}", codec);
+        assert!(debug_str.contains("BuffCodec"));
+    }
+
+    #[test]
+    fn test_special_value_debug() {
+        let sv = SpecialValue {
+            index: 5,
+            kind: SpecialValueKind::NaN,
+        };
+        let debug_str = format!("{:?}", sv);
+        assert!(debug_str.contains("SpecialValue"));
+        assert!(debug_str.contains("NaN"));
+    }
+
+    #[test]
+    fn test_special_value_clone() {
+        let sv1 = SpecialValue {
+            index: 5,
+            kind: SpecialValueKind::PositiveInfinity,
+        };
+        let sv2 = sv1;
+        assert_eq!(sv1, sv2);
+    }
+
+    #[test]
+    fn test_special_value_kind_eq() {
+        assert_eq!(SpecialValueKind::NaN, SpecialValueKind::NaN);
+        assert_eq!(
+            SpecialValueKind::PositiveInfinity,
+            SpecialValueKind::PositiveInfinity
+        );
+        assert_ne!(SpecialValueKind::NaN, SpecialValueKind::PositiveInfinity);
+    }
+
+    #[test]
+    fn test_buff_metadata_eq() {
+        let m1 = BuffMetadata {
+            base_value: 100,
+            count: 10,
+            integer_bits: 8,
+            decimal_bits: 4,
+            total_bytes: 50,
+        };
+        let m2 = BuffMetadata {
+            base_value: 100,
+            count: 10,
+            integer_bits: 8,
+            decimal_bits: 4,
+            total_bytes: 50,
+        };
+        assert_eq!(m1, m2);
+    }
+
+    #[test]
+    fn test_buff_metadata_clone() {
+        let m1 = BuffMetadata {
+            base_value: 100,
+            count: 10,
+            integer_bits: 8,
+            decimal_bits: 4,
+            total_bytes: 50,
+        };
+        let m2 = m1.clone();
+        assert_eq!(m1, m2);
+    }
+
+    #[test]
+    fn test_encode_decode_small_delta_less_than_byte() {
+        // Create data where delta fits in less than 8 bits
+        let codec = BuffCodec::new(10);
+        let data = vec![1.0, 1.1, 1.2, 1.3]; // Very small delta
+        let encoded = codec.encode(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(data.len(), decoded.len());
+        for (orig, dec) in data.iter().zip(decoded.iter()) {
+            assert!((orig - dec).abs() < 0.2);
+        }
+    }
+
+    #[test]
+    fn test_v2_format_with_zero_regular_values_decoding() {
+        let codec = BuffCodec::new(1000);
+
+        // All special values
+        let data = vec![f64::INFINITY, f64::NAN];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 2);
+        assert!(decoded[0].is_infinite());
+        assert!(decoded[1].is_nan());
+    }
 }

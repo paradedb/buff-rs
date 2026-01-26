@@ -569,4 +569,173 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_encode_decimals_empty() {
+        let codec = BuffCodec::new(1000);
+        let result = codec.encode_decimals(&[]);
+        assert!(matches!(result, Err(BuffError::EmptyInput)));
+    }
+
+    #[test]
+    fn test_encode_decimal64s_empty() {
+        let codec = BuffCodec::new(1000);
+        let result = codec.encode_decimal64s(&[]);
+        assert!(matches!(result, Err(BuffError::EmptyInput)));
+    }
+
+    #[test]
+    fn test_decimal_to_f64_special_values() {
+        let codec = BuffCodec::new(1000);
+
+        // Test NaN
+        let nan = Decimal::nan();
+        let f_nan = codec.decimal_to_f64(&nan);
+        assert!(f_nan.is_nan());
+
+        // Test +Infinity
+        let inf = Decimal::infinity();
+        let f_inf = codec.decimal_to_f64(&inf);
+        assert!(f_inf.is_infinite() && f_inf.is_sign_positive());
+
+        // Test -Infinity
+        let neg_inf = Decimal::neg_infinity();
+        let f_neg_inf = codec.decimal_to_f64(&neg_inf);
+        assert!(f_neg_inf.is_infinite() && f_neg_inf.is_sign_negative());
+    }
+
+    #[test]
+    fn test_f64_to_decimal_special_values() {
+        let codec = BuffCodec::new(1000);
+
+        // Test NaN
+        let dec_nan = codec.f64_to_decimal(f64::NAN).unwrap();
+        assert!(dec_nan.is_nan());
+
+        // Test +Infinity
+        let dec_inf = codec.f64_to_decimal(f64::INFINITY).unwrap();
+        assert!(dec_inf.is_infinity() && !dec_inf.is_negative());
+
+        // Test -Infinity
+        let dec_neg_inf = codec.f64_to_decimal(f64::NEG_INFINITY).unwrap();
+        assert!(dec_neg_inf.is_infinity() && dec_neg_inf.is_negative());
+    }
+
+    #[test]
+    fn test_f64_to_decimal64_special_values() {
+        let codec = BuffCodec::new(1000);
+
+        // Test NaN
+        let d64_nan = codec.f64_to_decimal64(f64::NAN, 3).unwrap();
+        assert!(d64_nan.is_nan());
+
+        // Test +Infinity
+        let d64_inf = codec.f64_to_decimal64(f64::INFINITY, 3).unwrap();
+        assert!(d64_inf.is_pos_infinity());
+
+        // Test -Infinity
+        let d64_neg_inf = codec.f64_to_decimal64(f64::NEG_INFINITY, 3).unwrap();
+        assert!(d64_neg_inf.is_neg_infinity());
+    }
+
+    #[test]
+    fn test_decimal64_to_f64_scale_zero() {
+        // Test with scale=0 (integer)
+        let d64 = Decimal64::new("12345", 0).unwrap();
+        let f = decimal64_to_f64(&d64);
+        assert!((f - 12345.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_decimal64_to_f64_nan() {
+        let d64 = Decimal64::nan();
+        let f = decimal64_to_f64(&d64);
+        assert!(f.is_nan());
+    }
+
+    #[test]
+    fn test_decimal64_to_f64_pos_infinity() {
+        let d64 = Decimal64::infinity();
+        let f = decimal64_to_f64(&d64);
+        assert!(f.is_infinite() && f.is_sign_positive());
+    }
+
+    #[test]
+    fn test_decimal64_to_f64_neg_infinity() {
+        let d64 = Decimal64::neg_infinity();
+        let f = decimal64_to_f64(&d64);
+        assert!(f.is_infinite() && f.is_sign_negative());
+    }
+
+    #[test]
+    fn test_decimal_array_ext_neg_infinity() {
+        let decimals: Vec<Decimal> = vec!["1.0".parse().unwrap(), Decimal::neg_infinity()];
+
+        let floats = decimals.to_f64_array();
+
+        assert!((floats[0] - 1.0).abs() < f64::EPSILON);
+        assert!(floats[1].is_infinite() && floats[1].is_sign_negative());
+    }
+
+    #[test]
+    fn test_decimal_array_ext_nan() {
+        let decimals: Vec<Decimal> = vec!["1.0".parse().unwrap(), Decimal::nan()];
+
+        let floats = decimals.to_f64_array();
+
+        assert!((floats[0] - 1.0).abs() < f64::EPSILON);
+        assert!(floats[1].is_nan());
+    }
+
+    #[test]
+    fn test_decimal64_array_ext_special() {
+        let decimals: Vec<Decimal64> = vec![Decimal64::nan(), Decimal64::neg_infinity()];
+
+        let floats = decimals.decimal64s_to_f64_array();
+
+        assert!(floats[0].is_nan());
+        assert!(floats[1].is_infinite() && floats[1].is_sign_negative());
+    }
+
+    #[test]
+    fn test_negative_decimals() {
+        let codec = BuffCodec::new(1000);
+
+        let decimals: Vec<Decimal> = vec![
+            "-1.234".parse().unwrap(),
+            "-5.678".parse().unwrap(),
+            "0.0".parse().unwrap(),
+        ];
+
+        let encoded = codec.encode_decimals(&decimals).unwrap();
+        let decoded = codec.decode_to_decimals(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        for (orig, dec) in decimals.iter().zip(decoded.iter()) {
+            let orig_f: f64 = orig.to_string().parse().unwrap();
+            let dec_f: f64 = dec.to_string().parse().unwrap();
+            assert!((orig_f - dec_f).abs() < 0.001, "orig={}, dec={}", orig, dec);
+        }
+    }
+
+    #[test]
+    fn test_negative_decimal64s() {
+        let codec = BuffCodec::new(1000);
+
+        let decimals: Vec<Decimal64> = vec![
+            Decimal64::new("-1.234", 3).unwrap(),
+            Decimal64::new("-5.678", 3).unwrap(),
+            Decimal64::new("0.0", 3).unwrap(),
+        ];
+
+        let encoded = codec.encode_decimal64s(&decimals).unwrap();
+        let decoded = codec.decode_to_decimal64s(&encoded, 3).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        for (orig, dec) in decimals.iter().zip(decoded.iter()) {
+            let orig_f = decimal64_to_f64(orig);
+            let dec_f = decimal64_to_f64(dec);
+            assert!((orig_f - dec_f).abs() < 0.001, "orig={}, dec={}", orig, dec);
+        }
+    }
 }

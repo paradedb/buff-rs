@@ -445,4 +445,153 @@ mod tests {
         let cloned = bound.clone();
         assert_eq!(bound.precision, cloned.precision);
     }
+
+    #[test]
+    fn test_cal_length_negative_exponent() {
+        let mut bound = PrecisionBound::new(0.0005);
+
+        // Value with negative exponent (very small)
+        bound.cal_length(0.00123);
+        let (_, dlen) = bound.get_length();
+        assert!(dlen > 0);
+    }
+
+    #[test]
+    fn test_cal_length_large_exponent() {
+        let mut bound = PrecisionBound::new(0.0005);
+
+        // Value with large exponent
+        bound.cal_length(1000000.0);
+        let (ilen, _) = bound.get_length();
+        assert!(ilen > 10); // 2^20 ≈ 1M, so need at least 20 bits
+    }
+
+    #[test]
+    fn test_cal_length_power_of_two() {
+        let mut bound = PrecisionBound::new(0.0005);
+
+        // Exact power of two
+        bound.cal_length(1024.0);
+        let (ilen, _) = bound.get_length();
+        assert!(ilen > 0);
+    }
+
+    #[test]
+    fn test_fetch_components_power_of_two() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(16, 14);
+
+        let (int_part, dec_part) = bound.fetch_components(256.0);
+        assert_eq!(int_part, 256);
+        assert_eq!(dec_part, 0);
+    }
+
+    #[test]
+    fn test_fetch_components_with_decimal() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let (int_part, dec_part) = bound.fetch_components(5.5);
+        assert_eq!(int_part, 5);
+        assert!(dec_part > 0); // Should have decimal part
+    }
+
+    #[test]
+    fn test_precision_bound_very_tight() {
+        let mut bound = PrecisionBound::new(0.000001); // Very tight precision
+
+        let result = bound.precision_bound(1.23456789);
+        assert!((result - 1.23456789).abs() < 0.00001);
+    }
+
+    #[test]
+    fn test_precision_bound_loose() {
+        let mut bound = PrecisionBound::new(0.5); // Loose precision
+
+        let result = bound.precision_bound(1.7);
+        assert!((result - 1.7).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_large_value() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(20, 14);
+
+        let fixed = bound.fetch_fixed_aligned(1000000.123);
+        assert!(fixed > 0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_very_small() {
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(0, 14);
+
+        // Value smaller than precision - should be 0
+        let fixed = bound.fetch_fixed_aligned(0.0000001);
+        assert_eq!(fixed, 0);
+    }
+
+    #[test]
+    fn test_is_bounded_same_value() {
+        let bound = PrecisionBound::new(0.05);
+        assert!(bound.is_bounded(5.0, 5.0));
+    }
+
+    #[test]
+    fn test_is_bounded_at_boundary() {
+        let bound = PrecisionBound::new(0.05);
+        // Exactly at the boundary
+        assert!(bound.is_bounded(1.0, 1.049));
+        assert!(!bound.is_bounded(1.0, 1.06));
+    }
+
+    #[test]
+    fn test_get_precision_bound_various() {
+        for prec in 1..=15 {
+            let pb = get_precision_bound(prec);
+            assert!(pb > 0.0);
+            assert!(pb < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_precision_map_coverage() {
+        // Verify all precision map entries are valid
+        for (prec, len) in PRECISION_MAP {
+            assert!(prec >= 0);
+            assert!(len <= 64);
+        }
+    }
+
+    #[test]
+    fn test_fetch_components_negative_exponent_below_precision() {
+        let mut bound = PrecisionBound::new(0.005); // precision_exp around -8
+        bound.set_length(0, 10);
+
+        // Value with exponent below precision threshold
+        let (int_part, dec_part) = bound.fetch_components(0.0000001);
+        assert_eq!(int_part, 0);
+        // dec_part should be 0 or very small
+        assert!(dec_part == 0 || dec_part < 10);
+    }
+
+    #[test]
+    fn test_fetch_components_negative_value_small() {
+        let mut bound = PrecisionBound::new(0.005);
+        bound.set_length(0, 10);
+
+        let (int_part, dec_part) = bound.fetch_components(-0.001);
+        // For small negative values below precision
+        assert!(int_part <= 0 || dec_part > 0);
+    }
+
+    #[test]
+    fn test_cal_length_trailing_zeros() {
+        let mut bound = PrecisionBound::new(0.0005);
+
+        // Value with many trailing zeros in binary representation
+        bound.cal_length(8.0); // 8 = 2^3, has trailing zeros
+        let (ilen, _) = bound.get_length();
+        assert!(ilen >= 4); // 2^4 > 8
+    }
 }

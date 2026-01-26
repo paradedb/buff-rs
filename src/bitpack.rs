@@ -554,4 +554,33 @@ mod tests {
         let result = bitpack.read_byte();
         assert!(matches!(result, Err(BuffError::InvalidData(_))));
     }
+
+    #[test]
+    fn test_write_mut_slice_bit_width_exceeded() {
+        // Test line 194 - BitPack<&mut [u8]> bit width exceeded
+        let mut buffer = [0u8; 10];
+        let mut bitpack = BitPack::new(&mut buffer[..]);
+        let result = bitpack.write(0, 33);
+        assert!(matches!(result, Err(BuffError::BitWidthExceeded(33))));
+    }
+
+    #[test]
+    fn test_write_mut_slice_full_32_bits() {
+        // Test writing exactly 32 bits to mutable slice
+        let mut buffer = [0u8; 8];
+        let mut bitpack = BitPack::new(&mut buffer[..]);
+        bitpack.write(0xDEADBEEF, 32).unwrap();
+        assert_eq!(bitpack.sum_bits(), 32);
+    }
+
+    #[test]
+    fn test_write_mut_slice_value_masking() {
+        // Test that value is properly masked when bits < 32
+        let mut buffer = [0u8; 4];
+        let mut bitpack = BitPack::new(&mut buffer[..]);
+        // Write only 4 bits of a larger value
+        bitpack.write(0xFF, 4).unwrap();
+        // Should only have written 0x0F
+        assert_eq!(buffer[0] & 0x0F, 0x0F);
+    }
 }

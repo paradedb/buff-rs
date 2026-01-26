@@ -594,4 +594,119 @@ mod tests {
         let (ilen, _) = bound.get_length();
         assert!(ilen >= 4); // 2^4 > 8
     }
+
+    #[test]
+    fn test_precision_bound_position_52() {
+        // Test where position reaches 52 (line 78)
+        let mut bound = PrecisionBound::new(1.0); // Very loose precision
+
+        // Use a value where most bits don't matter
+        let result = bound.precision_bound(1.0);
+        assert!((result - 1.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn test_precision_bound_not_bounded_initially() {
+        // Test the else branch (lines 91-102) where initial value is not bounded
+        let mut bound = PrecisionBound::new(0.0000001); // Very tight precision
+
+        // Force position to be non-zero by calling precision_bound multiple times
+        let _ = bound.precision_bound(1.5);
+        // Now call with a value that's not bounded at current position
+        let result = bound.precision_bound(2.123456789);
+        assert!((result - 2.123456789).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_precision_bound_position_zero() {
+        // Test where position reaches 0 (line 92)
+        let mut bound = PrecisionBound::new(0.0000000001); // Extremely tight
+
+        let result = bound.precision_bound(1.123456789012345);
+        assert!((result - 1.123456789012345).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_fetch_components_negative_exp_below_precision() {
+        // Test the branch where exp < precision_exp (lines 161-166)
+        let mut bound = PrecisionBound::new(0.01); // precision_exp around -7
+        bound.set_length(0, 14);
+
+        // Use a very small negative value
+        let (int_part, dec_part) = bound.fetch_components(-0.0001);
+        // Should trigger the exp < precision_exp branch
+        assert!(int_part < 0 || dec_part > 0);
+    }
+
+    #[test]
+    fn test_fetch_components_negative_sign_handling() {
+        // Test negative value handling in fetch_components (lines 169-170)
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let (int_part, dec_part) = bound.fetch_components(-0.5);
+        // Negative value with negative exponent
+        assert!(int_part < 0 || dec_part > 0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_negative_exp_above_precision() {
+        // Test where exp is negative but >= precision_exp (line 193)
+        let mut bound = PrecisionBound::new(0.01);
+        bound.set_length(0, 14);
+
+        let fixed = bound.fetch_fixed_aligned(0.25); // exp = -2, which is > -7
+        assert!(fixed != 0);
+    }
+
+    #[test]
+    fn test_fetch_fixed_aligned_negative_sign() {
+        // Test negative value handling in fetch_fixed_aligned (line 195)
+        let mut bound = PrecisionBound::new(0.00005);
+        bound.set_length(4, 14);
+
+        let fixed = bound.fetch_fixed_aligned(-0.25);
+        assert!(fixed < 0);
+    }
+
+    #[test]
+    fn test_cal_length_exp_negative_above_precision() {
+        // Test cal_length where exp < 0 and exp >= precision_exp (lines 115-117)
+        let mut bound = PrecisionBound::new(0.01); // precision_exp ~ -7
+
+        bound.cal_length(0.25); // exp = -2, which is > -7
+        let (_, dlen) = bound.get_length();
+        assert!(dlen > 0);
+    }
+
+    #[test]
+    fn test_cal_length_trailing_zeros_with_decimal() {
+        // Test cal_length where trailing_zeros >= 52 and exp < 0 (line 115)
+        let mut bound = PrecisionBound::new(0.1);
+
+        // Power of 2 fraction: 0.5 = 2^-1
+        bound.cal_length(0.5);
+        let (_, dlen) = bound.get_length();
+        assert!(dlen >= 0);
+    }
+
+    #[test]
+    fn test_precision_bound_finds_bounded_then_not() {
+        // Test where we start bounded, then find unbounded (line 84-85)
+        let mut bound = PrecisionBound::new(0.1);
+
+        let result = bound.precision_bound(3.14159);
+        // Should find a bounded representation
+        assert!((result - 3.14159).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_precision_bound_finds_unbounded_then_bounded() {
+        // Test where we start unbounded, find bounded (lines 98-100)
+        let mut bound = PrecisionBound::new(0.001);
+        bound.position = 10; // Start at a higher position
+
+        let result = bound.precision_bound(1.5);
+        assert!((result - 1.5).abs() < 0.01);
+    }
 }

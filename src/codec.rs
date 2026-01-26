@@ -1737,4 +1737,219 @@ mod tests {
         assert!(decoded[0].is_infinite());
         assert!(decoded[1].is_nan());
     }
+
+    #[test]
+    fn test_encode_with_special_small_delta_less_than_byte() {
+        // Test encode_with_special with data that requires < 8 bits (lines 436-439)
+        let codec = BuffCodec::new(10);
+        let data = vec![1.0, f64::INFINITY, 1.1, 1.2]; // Small delta with special value
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 4);
+        assert!((decoded[0] - 1.0).abs() < 0.2);
+        assert!(decoded[1].is_infinite());
+        assert!((decoded[2] - 1.1).abs() < 0.2);
+        assert!((decoded[3] - 1.2).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_encode_with_special_exactly_8_bits() {
+        // Test encode_with_special where remain becomes exactly 0 after first byte (line 450)
+        let codec = BuffCodec::new(1);
+        let data = vec![0.0, f64::NAN, 10.0]; // Range of ~10 with scale 1
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        assert!((decoded[0] - 0.0).abs() < 1.0);
+        assert!(decoded[1].is_nan());
+        assert!((decoded[2] - 10.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_encode_with_special_multi_byte() {
+        // Test encode_with_special with multiple byte chunks (lines 456-466)
+        let codec = BuffCodec::new(100);
+        let data = vec![0.0, f64::INFINITY, 1000.0, f64::NEG_INFINITY, 500.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 5);
+        assert!((decoded[0] - 0.0).abs() < 1.0);
+        assert!(decoded[1].is_infinite() && decoded[1].is_sign_positive());
+        assert!((decoded[2] - 1000.0).abs() < 1.0);
+        assert!(decoded[3].is_infinite() && decoded[3].is_sign_negative());
+        assert!((decoded[4] - 500.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_encode_with_special_remain_zero_after_loop() {
+        // Test where remain becomes exactly 0 in the while loop (lines 462-464)
+        let codec = BuffCodec::new(10);
+        let data = vec![0.0, f64::NAN, 100.0, 200.0]; // Range requiring ~16 bits
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 4);
+        assert!(decoded[1].is_nan());
+    }
+
+    #[test]
+    fn test_encode_with_special_partial_byte_remainder() {
+        // Test where there's a partial byte remainder (lines 469-474)
+        let codec = BuffCodec::new(100);
+        let data = vec![0.0, f64::INFINITY, 50.0, 100.0, 150.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 5);
+        assert!(decoded[1].is_infinite());
+    }
+
+    #[test]
+    fn test_encode_exactly_8_bits() {
+        // Test encode (v1) where remain becomes 0 after first byte (lines 265-270)
+        let codec = BuffCodec::new(1);
+        let data = vec![0.0, 10.0, 5.0]; // Small range with low scale
+        let encoded = codec.encode(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        for (orig, dec) in data.iter().zip(decoded.iter()) {
+            assert!((orig - dec).abs() < 1.0);
+        }
+    }
+
+    #[test]
+    fn test_decode_v2_two_chunks() {
+        // Test decode_v2 with 2 byte chunks (lines 682-689)
+        let codec = BuffCodec::new(100);
+        let data = vec![0.0, f64::NAN, 500.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        assert!(decoded[1].is_nan());
+    }
+
+    #[test]
+    fn test_decode_v2_three_chunks() {
+        // Test decode_v2 with 3 byte chunks (lines 691-702)
+        let codec = BuffCodec::new(1000);
+        let data = vec![0.0, f64::INFINITY, 50000.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 3);
+        assert!(decoded[1].is_infinite());
+    }
+
+    #[test]
+    fn test_decode_v2_four_chunks() {
+        // Test decode_v2 with 4 byte chunks (lines 704-723)
+        let codec = BuffCodec::new(1000);
+        let data = vec![0.0, f64::NEG_INFINITY, 100000.0, 50000.0];
+        let encoded = codec.encode_with_special(&data).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 4);
+        assert!(decoded[1].is_infinite() && decoded[1].is_sign_negative());
+    }
+
+    #[test]
+    fn test_sum_v2_format() {
+        // Test sum with v2 format data
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, 2.0, 3.0]; // No special values but test sum
+        let encoded = codec.encode(&data).unwrap();
+        let sum = codec.sum(&encoded).unwrap();
+        assert!((sum - 6.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_max_v2_format() {
+        // Test max with v2 format data
+        let codec = BuffCodec::new(1000);
+        let data = vec![1.0, 5.0, 3.0];
+        let encoded = codec.encode(&data).unwrap();
+        let max = codec.max(&encoded).unwrap();
+        assert!((max - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_decode_v1_unsupported_bit_length() {
+        // Test decode_v1 with unsupported bit length (lines 597-602)
+        let codec = BuffCodec::new(1000);
+
+        // Craft invalid data with ilen + dlen > 32
+        let mut data = Vec::new();
+        // Base (8 bytes)
+        data.extend_from_slice(&0u64.to_le_bytes());
+        // Count (4 bytes)
+        data.extend_from_slice(&10u32.to_le_bytes());
+        // ilen (4 bytes) - set to 20
+        data.extend_from_slice(&20u32.to_le_bytes());
+        // dlen (4 bytes) - set to 20 (total 40 bits > 32)
+        data.extend_from_slice(&20u32.to_le_bytes());
+
+        let result = codec.decode(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_v2_unsupported_bit_length() {
+        // Test decode_v2 with unsupported bit length (lines 726-731)
+        let codec = BuffCodec::new(1000);
+
+        // Craft v2 format with unsupported bit length
+        let mut data = vec![FORMAT_V2];
+        // Base (8 bytes)
+        data.extend_from_slice(&0i64.to_le_bytes());
+        // Regular count (4 bytes)
+        data.extend_from_slice(&5u32.to_le_bytes());
+        // ilen (4 bytes) - set to 20
+        data.extend_from_slice(&20u32.to_le_bytes());
+        // dlen (4 bytes) - set to 20 (total 40 bits > 32)
+        data.extend_from_slice(&20u32.to_le_bytes());
+        // Special count (4 bytes)
+        data.extend_from_slice(&0u32.to_le_bytes());
+        // Add some padding data
+        data.extend_from_slice(&[0u8; 50]);
+
+        let result = codec.decode(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sum_unsupported_bit_length() {
+        // Test sum with unsupported bit length (lines 840-845)
+        let codec = BuffCodec::new(1000);
+
+        // Craft invalid data with ilen + dlen > 32
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u64.to_le_bytes()); // base
+        data.extend_from_slice(&10u32.to_le_bytes()); // count
+        data.extend_from_slice(&20u32.to_le_bytes()); // ilen
+        data.extend_from_slice(&20u32.to_le_bytes()); // dlen (total 40 > 32)
+
+        let result = codec.sum(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_unsupported_bit_length() {
+        // Test max with unsupported bit length (lines 946-951)
+        let codec = BuffCodec::new(1000);
+
+        // Craft invalid data with ilen + dlen > 32
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u64.to_le_bytes()); // base
+        data.extend_from_slice(&10u32.to_le_bytes()); // count
+        data.extend_from_slice(&20u32.to_le_bytes()); // ilen
+        data.extend_from_slice(&20u32.to_le_bytes()); // dlen (total 40 > 32)
+
+        let result = codec.max(&data);
+        assert!(result.is_err());
+    }
 }

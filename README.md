@@ -1,8 +1,8 @@
 # buff-rs
 
-[![CI](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/paradedb/buff-rs/graph/badge.svg)](https://codecov.io/gh/paradedb/buff-rs)
 [![Crates.io](https://img.shields.io/crates/v/buff-rs.svg)](https://crates.io/crates/buff-rs)
+[![codecov](https://codecov.io/gh/paradedb/buff-rs/graph/badge.svg)](https://codecov.io/gh/paradedb/buff-rs)
+[![CI](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/paradedb/buff-rs/actions/workflows/ci.yml)
 [![Documentation](https://docs.rs/buff-rs/badge.svg)](https://docs.rs/buff-rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 

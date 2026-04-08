@@ -36,7 +36,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-buff-rs = "0.1"
+buff-rs = "0.2"
 ```
 
 ### Optional Features
@@ -44,7 +44,7 @@ buff-rs = "0.1"
 ```toml
 [dependencies]
 # Enable decimal-bytes interop for PostgreSQL NUMERIC compatibility
-buff-rs = { version = "0.1", features = ["decimal"] }
+buff-rs = { version = "0.2", features = ["decimal"] }
 ```
 
 ## Quick Start
@@ -105,7 +105,7 @@ Enable the `decimal` feature for `decimal-bytes` compatibility:
 
 ```toml
 [dependencies]
-buff-rs = { version = "0.1", features = ["decimal"] }
+buff-rs = { version = "0.2", features = ["decimal"] }
 ```
 
 ### With Decimal (Arbitrary Precision)

@@ -17,7 +17,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! buff-rs = { version = "0.1", features = ["decimal"] }
+//! buff-rs = { version = "0.2", features = ["decimal"] }
 //! ```
 //!
 //! ### With Decimal (arbitrary precision)
